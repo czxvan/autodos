@@ -9,16 +9,6 @@ from pydantic import BaseModel, Field
 
 
 # ============================================================================
-# Message Type
-# ============================================================================
-
-class Message(TypedDict):
-    """Chat message type."""
-    role: Literal["system", "user", "assistant"]
-    content: str
-
-
-# ============================================================================
 # Agent Configuration
 # ============================================================================
 
@@ -123,11 +113,30 @@ class AutoDoSConfig(BaseModel):
 # ============================================================================
 
 class AttackResult(BaseModel):
-    """Attack result."""
+    """Attack result for a single attempt."""
     success: bool
     prompt: str
     response_content: Optional[str] = None
     response_length: int = 0
     iteration: int = 0
     total_cost: float = 0.0
+    error: Optional[str] = None
+
+
+class AttackSummary(BaseModel):
+    """Summary of complete attack execution."""
+    success: bool
+    successful_prompts: list[str]
+    total_attempts: int
+    total_iterations: int
+    duration_seconds: float
+    success_rate: float
+    best_prompt: str = ""
+    general_prompt: str = ""  # The complete problem tree prompt
+    # Token usage statistics
+    total_prompt_tokens: int = 0
+    total_completion_tokens: int = 0
+    total_tokens: int = 0
+    # Cost estimation (in USD, based on OpenAI pricing as reference)
+    estimated_cost: float = 0.0
     error: Optional[str] = None

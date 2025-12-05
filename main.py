@@ -57,15 +57,27 @@ def save_results(
         successful_prompts: List of successful attack prompts
         attack: AutoDoS attack instance with history
     """
-    # Create output directory
-    output_dir = Path(config.output.save_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Use the attack's run directory
+    run_dir = attack._run_dir
     
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    print(f"\nSaving results to: {run_dir}")
+    
+    # Save general prompt (problem tree)
+    if hasattr(attack, '_last_general_prompt'):
+        general_file = run_dir / "general_prompt.txt"
+        with open(general_file, 'w', encoding='utf-8') as f:
+            f.write(f"# AutoDoS Generated Problem Tree\n")
+            f.write(f"# Generated: {datetime.now().isoformat()}\n")
+            f.write(f"# This is the complete problem tree used for optimization\n\n")
+            f.write(f"{'='*60}\n")
+            f.write(f"GENERAL PROMPT (Problem Tree)\n")
+            f.write(f"{'='*60}\n\n")
+            f.write(attack._last_general_prompt)
+        print(f"✓ Saved general prompt to: {general_file.name}")
     
     # Save successful prompts
     if successful_prompts:
-        prompts_file = output_dir / f"successful_prompts_{timestamp}.txt"
+        prompts_file = run_dir / "successful_prompts.txt"
         with open(prompts_file, 'w', encoding='utf-8') as f:
             f.write(f"# AutoDoS Successful Prompts\n")
             f.write(f"# Generated: {datetime.now().isoformat()}\n")
@@ -75,18 +87,18 @@ def save_results(
                 f.write(f"PROMPT {i}\n")
                 f.write(f"{'='*60}\n")
                 f.write(f"{prompt}\n\n")
-        print(f"\n✓ Saved {len(successful_prompts)} successful prompts to: {prompts_file}")
+        print(f"✓ Saved {len(successful_prompts)} successful prompts to: {prompts_file.name}")
     
     # Save attack history
     if config.output.save_intermediate and attack.attack_history:
-        history_file = output_dir / f"attack_history_{timestamp}.json"
+        history_file = run_dir / "attack_history.json"
         history_data = [result.model_dump() for result in attack.attack_history]
         with open(history_file, 'w', encoding='utf-8') as f:
             json.dump(history_data, f, indent=2, ensure_ascii=False)
-        print(f"✓ Saved attack history to: {history_file}")
+        print(f"✓ Saved attack history to: {history_file.name}")
     
     # Save summary
-    summary_file = output_dir / f"summary_{timestamp}.txt"
+    summary_file = run_dir / "summary.txt"
     with open(summary_file, 'w', encoding='utf-8') as f:
         f.write(f"AutoDoS Attack Summary\n")
         f.write(f"{'='*60}\n\n")
@@ -104,9 +116,17 @@ def save_results(
         f.write(f"Results:\n")
         f.write(f"  Total Attempts: {len(attack.attack_history)}\n")
         f.write(f"  Successful Prompts: {len(successful_prompts)}\n")
-        f.write(f"  Success Rate: {len(successful_prompts) / len(attack.attack_history) * 100:.1f}%\n" if attack.attack_history else "  Success Rate: N/A\n")
+        f.write(f"  Success Rate: {len(successful_prompts) / len(attack.attack_history) * 100:.1f}%\n" if attack.attack_history else "  Success Rate: 0.0%\n")
+        f.write(f"\nToken Usage:\n")
+        f.write(f"  Prompt Tokens: {attack._total_prompt_tokens:,}\n")
+        f.write(f"  Completion Tokens: {attack._total_completion_tokens:,}\n")
+        f.write(f"  Total Tokens: {attack._total_prompt_tokens + attack._total_completion_tokens:,}\n")
+        f.write(f"  Estimated Cost: ${attack._estimate_cost():.4f}\n")
     
-    print(f"✓ Saved summary to: {summary_file}\n")
+    print(f"✓ Saved summary to: {summary_file.name}")
+    print(f"\n{'='*60}")
+    print(f"All results saved to: {run_dir}")
+    print(f"{'='*60}\n")
 
 
 async def run_attack(config_path: str) -> None:
@@ -145,36 +165,37 @@ async def run_attack(config_path: str) -> None:
     
     try:
         logger.info("Starting attack execution...")
-        start_time = datetime.now()
         
-        successful_prompts = await attack.arun()
-        
-        end_time = datetime.now()
-        duration = (end_time - start_time).total_seconds()
+        result = await attack.arun()
         
         # Display results
         print(f"\n{'='*60}")
         print(f"Attack Complete")
         print(f"{'='*60}")
-        print(f"Duration: {duration:.1f}s")
-        print(f"Total Attempts: {len(attack.attack_history)}")
-        print(f"Successful Prompts: {len(successful_prompts)}")
+        print(f"Duration: {result.duration_seconds:.1f}s")
+        print(f"Total Attempts: {result.total_attempts}")
+        print(f"Successful Prompts: {len(result.successful_prompts)}")
+        print(f"Success Rate: {result.success_rate:.1f}%")
+        print(f"Token Usage: {result.total_tokens:,} ({result.total_prompt_tokens:,} prompt + {result.total_completion_tokens:,} completion)")
+        print(f"Estimated Cost: ${result.estimated_cost:.4f}")
         
-        if successful_prompts:
-            print(f"\n✓ SUCCESS: Found {len(successful_prompts)} working prompts!")
-            print(f"\nFirst successful prompt preview:")
+        if result.success:
+            print(f"\n✓ SUCCESS: Found {len(result.successful_prompts)} working prompts!")
+            print(f"\nBest prompt preview:")
             print(f"{'-'*60}")
-            print(f"{successful_prompts[0][:200]}...")
+            print(f"{result.best_prompt[:200]}...")
             print(f"{'-'*60}")
         else:
             print(f"\n✗ No successful prompts found.")
+            if result.error:
+                print(f"Error: {result.error}")
             print(f"Consider adjusting parameters or trying a different model.")
         
         # Save results
         print(f"\nSaving results...")
-        save_results(config, successful_prompts, attack)
+        save_results(config, result.successful_prompts, attack)
         
-        logger.info(f"Attack completed in {duration:.1f}s")
+        logger.info(f"Attack completed in {result.duration_seconds:.1f}s")
         
     except KeyboardInterrupt:
         logger.warning("\n\nAttack interrupted by user")

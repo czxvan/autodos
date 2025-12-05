@@ -6,7 +6,7 @@ from typing import List, Optional, Dict, Any, Type
 from pydantic import BaseModel
 from json_repair import loads as json_loads
 
-from autodos.config import Message, AgentConfig
+from autodos.config import AgentConfig
 from anyllm import AsyncClient
 
 logger = logging.getLogger(__name__)
@@ -102,14 +102,14 @@ class BaseAgent(ABC):
     def _create_messages(
         self,
         user_prompt: str,
-        history: Optional[List[Message]] = None,
+        history: Optional[List[Dict[str, str]]] = None,
         system_prompt: Optional[str] = None,
     ) -> List[Dict[str, str]]:
         """Create message list for LLM request.
         
         Args:
             user_prompt: User prompt string
-            history: Optional conversation history
+            history: Optional conversation history (list of dicts with 'role' and 'content')
             system_prompt: Optional custom system prompt
             
         Returns:
@@ -130,8 +130,7 @@ class BaseAgent(ABC):
         
         # Add history
         if history:
-            for msg in history:
-                messages.append({"role": msg.role, "content": msg.content})
+            messages.extend(history)
         
         # Add user prompt
         messages.append({"role": "user", "content": user_prompt})
@@ -141,8 +140,8 @@ class BaseAgent(ABC):
     async def request(
         self,
         prompt: str,
-        history: Optional[List[Message]] = None,
-        max_retries: int = 5,  # Increased for unreliable free APIs
+        history: Optional[List[Dict[str, str]]] = None,
+        max_retries: int = 5,
         **kwargs,
     ) -> Any:
         """Send async request to LLM with retry logic.
@@ -190,7 +189,7 @@ class BaseAgent(ABC):
             except asyncio.TimeoutError:
                 logger.warning(f"✗ Request timeout (attempt {attempt + 1}/{max_retries})")
                 if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 3
+                    wait_time = min((2 ** attempt) * 3, 30)  # Exponential backoff
                     logger.info(f"⏳ Retrying in {wait_time}s...")
                     await asyncio.sleep(wait_time)
                 else:
@@ -199,11 +198,12 @@ class BaseAgent(ABC):
             except Exception as e:
                 error_msg = str(e).lower()
                 is_retryable = any(keyword in error_msg for keyword in [
-                    'busy', 'rate limit', 'timeout', 'temporary', 'retry', 'overloaded', 'slow'
+                    'busy', 'rate limit', 'timeout', 'temporary', 'retry', 'overloaded', 'slow',
+                    'empty reply', 'curl', 'connection', 'network', 'unreachable', 'failed to perform'
                 ])
                 
                 if is_retryable and attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 3  # Exponential backoff: 3s, 6s, 9s
+                    wait_time = min((2 ** attempt) * 3, 30)  # Exponential backoff: 3s, 6s, 12s, 24s, 30s max
                     logger.warning(f"✗ Request failed (attempt {attempt + 1}/{max_retries}): {e}")
                     logger.info(f"⏳ Retrying in {wait_time}s...")
                     await asyncio.sleep(wait_time)

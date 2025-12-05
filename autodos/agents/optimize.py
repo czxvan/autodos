@@ -1,10 +1,9 @@
 """Optimize agent - generates and refines attack prompts."""
 
-from typing import Type, Optional, List
+from typing import Type, Optional, List, Dict
 from pydantic import BaseModel, Field
 
 from autodos.agents.base_agent import BaseAgent
-from autodos.config import Message
 
 
 class OptimizeReply(BaseModel):
@@ -112,7 +111,7 @@ Begin."""
         combined_subproblems: str,
         target_response: str,
         evaluation: str,
-        history: List[Message],
+        history: List[Dict[str, str]],
     ) -> OptimizeReply:
         """Refine attack prompt based on feedback.
         

@@ -25,6 +25,13 @@ class AutoDoSAttack:
     def __init__(self, config: AutoDoSConfig):
         self.config = config
         self.attack_history: List[AttackResult] = []
+        self._last_general_prompt: str = ""  # Store the generated problem tree
+        # Token usage tracking
+        self._total_prompt_tokens: int = 0
+        self._total_completion_tokens: int = 0
+        # Create unique run directory
+        self._run_timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self._run_dir = Path(config.output.save_dir) / f"run_{self._run_timestamp}"
         
         # Initialize agents
         logger.info("Initializing agents...")
@@ -41,7 +48,7 @@ class AutoDoSAttack:
         logger.info("All agents initialized successfully")
         
         # Create output directories
-        Path(config.output.save_dir).mkdir(parents=True, exist_ok=True)
+        self._run_dir.mkdir(parents=True, exist_ok=True)
         if config.logging.save_requests or config.logging.save_responses:
             Path(config.logging.output_dir).mkdir(parents=True, exist_ok=True)
     
@@ -53,10 +60,12 @@ class AutoDoSAttack:
         
         # Step 1: Generate complex problem
         logger.info("[1/2] Deep Backtracking...")
-        db_result = await self.deep_backtracking_agent.get_reply(
+        db_resp = await self.deep_backtracking_agent.request(
             f'Develop a complex problem for "{self.config.target.function_description}" '
             f'with {self.config.attack.n_subproblems} subproblems. Begin.'
         )
+        self._track_usage(db_resp)
+        db_result = self.deep_backtracking_agent.parse_response(db_resp)
         
         logger.info(f"✓ Generated {len(db_result.subproblems)} subproblems")
         
@@ -70,6 +79,7 @@ class AutoDoSAttack:
                 resp = await self.breadth_expansion_agent.request(
                     f"Context: {db_result.overall_problem}\n\nExpand: {sp}\n\nBegin."
                 )
+                self._track_usage(resp)
                 result = self.breadth_expansion_agent.parse_response(resp).expanded_prompt
                 logger.info(f"  ✓ Expanded {idx+1}/{total}")
                 return result
@@ -86,11 +96,15 @@ class AutoDoSAttack:
         combined = "".join(f"<QUESTION_{i+1}>\n{sp}\n</QUESTION_{i+1}>\n\n" for i, sp in enumerate(expanded))
         general_prompt = f"{db_result.overall_problem}\n\n{combined}"
         
+        # Store for later access
+        self._last_general_prompt = general_prompt
+        
         if self.config.output.save_intermediate:
             self._save_intermediate("tree", {
                 "overall": db_result.overall_problem,
                 "subproblems": db_result.subproblems,
                 "expanded": expanded,
+                "general_prompt": general_prompt,
             })
         
         return general_prompt, db_result.overall_problem, expanded
@@ -125,11 +139,22 @@ class AutoDoSAttack:
             
             # Test on target
             logger.info(f"Testing {len(prompts)} prompts...")
-            responses = await asyncio.gather(*[self.target_agent.request(p) for p in prompts])
+            responses = await asyncio.gather(
+                *[self.target_agent.request(p) for p in prompts],
+                return_exceptions=True
+            )
             
             # Check success
             successful = []
             for i, resp in enumerate(responses):
+                # Skip failed requests
+                if isinstance(resp, Exception):
+                    logger.warning(f"  Prompt {i+1}: Request failed - {resp}")
+                    continue
+                
+                # Track token usage
+                self._track_usage(resp)
+                
                 completion_tokens = resp['usage']['completion_tokens']
                 finish_reason = resp['finish_reason']
                 stopped_by_length = finish_reason == 'length'
@@ -159,67 +184,171 @@ class AutoDoSAttack:
             judge_prompts = [
                 f"Prepare: {results[i].prepare_prompt}\nQuestions: {combined}\n"
                 f"Post: {results[i].post_prompt}\nAnswer: {responses[i]['content']}\nEvaluate."
-                for i in range(n_streams)
+                for i in range(n_streams) if not isinstance(responses[i], Exception)
             ]
-            judge_resps = await asyncio.gather(*[self.judge_agent.request(p) for p in judge_prompts])
-            evals = [self.judge_agent.parse_response(r).evaluation for r in judge_resps]
+            judge_resps = await asyncio.gather(
+                *[self.judge_agent.request(p) for p in judge_prompts],
+                return_exceptions=True
+            )
+            evals = [
+                self.judge_agent.parse_response(r).evaluation 
+                for r in judge_resps if not isinstance(r, Exception)
+            ]
             
-            # Refine prompts
+            # Ensure we have at least some evaluations
+            if not evals:
+                logger.error("All judge evaluations failed, cannot continue this iteration")
+                break
+            
+            # Refine prompts - only for successful responses
             logger.info("Refining prompts...")
+            # Create a mapping of valid indices (responses that succeeded)
+            valid_indices = [i for i in range(n_streams) if not isinstance(responses[i], Exception)]
+            
+            # Make sure we have matching number of evals
+            if len(evals) != len(valid_indices):
+                logger.warning(f"Mismatch: {len(valid_indices)} valid responses but {len(evals)} evaluations")
+                # Truncate to minimum
+                min_len = min(len(evals), len(valid_indices))
+                valid_indices = valid_indices[:min_len]
+            
             refine_prompts = [
                 f"Previous response: {responses[i]['content'][:1000]}...\n"
-                f"Evaluation: {evals[i]}\n"
+                f"Evaluation: {evals[idx]}\n"
                 f"Improve to meet {q_len}+ words per question. Begin."
-                for i in range(n_streams)
+                for idx, i in enumerate(valid_indices)
             ]
             
-            # Build histories if first iteration
+            # Build histories if first iteration - only for valid indices
             if it == 1:
-                for i in range(n_streams):
+                for i in valid_indices:
                     histories[i] = [
                         {"role": "user", "content": init_prompt},
                         {"role": "assistant", "content": json.dumps(results[i].model_dump())},
                     ]
             
-            refine_resps = await asyncio.gather(*[
-                self.optimize_agent.request(p, history=h)
-                for p, h in zip(refine_prompts, histories)
-            ])
-            results = [self.optimize_agent.parse_response(r) for r in refine_resps]
-            prompts = [f"{r.prepare_prompt}\n\n{combined}\n\n{r.post_prompt}" for r in results]
+            # Only use histories for valid indices (filter out empty ones)
+            valid_histories = [histories[i] if i < len(histories) and histories[i] else [] for i in valid_indices]
+            
+            refine_resps = await asyncio.gather(
+                *[self.optimize_agent.request(p, history=h)
+                  for p, h in zip(refine_prompts, valid_histories)],
+                return_exceptions=True
+            )
+            # Only update results for successful refine responses
+            new_results = []
+            for idx, (valid_idx, resp) in enumerate(zip(valid_indices, refine_resps)):
+                if not isinstance(resp, Exception):
+                    results[valid_idx] = self.optimize_agent.parse_response(resp)
+                    new_results.append(results[valid_idx])
+                else:
+                    logger.warning(f"Refine failed for prompt {valid_idx+1}: {resp}")
+                    # Keep the old result
+                    new_results.append(results[valid_idx])
+            
+            # Update prompts based on results
+            prompts = [f"{r.prepare_prompt}\n\n{combined}\n\n{r.post_prompt}" for r in new_results]
+            # Ensure we have the right number of prompts for next iteration
+            while len(prompts) < n_streams:
+                prompts.append(prompts[-1])  # Duplicate last prompt if needed
         
         logger.warning("No success. Returning best attempts.")
         return prompts
     
-    async def arun(self) -> AttackResult:
-        """Run complete AutoDoS attack."""
+    async def arun(self):
+        """Run complete AutoDoS attack.
+        
+        Returns:
+            AttackSummary: Complete summary of attack execution
+        """
+        from autodos.config import AttackSummary
+        
         start = datetime.now()
         logger.info("=" * 60)
         logger.info("Starting AutoDoS Attack")
         logger.info("=" * 60)
         
-        # Generate problem tree
-        general_prompt, overall, expanded = await self._generate_tree()
+        try:
+            # Generate problem tree
+            general_prompt, overall, expanded = await self._generate_tree()
+            
+            # Optimize prompts
+            successful = await self._optimize(overall, expanded)
+            
+            duration = (datetime.now() - start).total_seconds()
+            
+            logger.info("=" * 60)
+            logger.info(f"Complete! Elapsed: {duration:.1f}s")
+            logger.info(f"Generated {len(successful)} prompts")
+            logger.info("=" * 60)
+            
+            total_tokens = self._total_prompt_tokens + self._total_completion_tokens
+            estimated_cost = self._estimate_cost()
+            
+            logger.info(f"Token Usage - Prompt: {self._total_prompt_tokens}, Completion: {self._total_completion_tokens}, Total: {total_tokens}")
+            logger.info(f"Estimated Cost: ${estimated_cost:.4f}")
+            
+            return AttackSummary(
+                success=len(successful) > 0,
+                successful_prompts=successful,
+                total_attempts=len(self.attack_history),
+                total_iterations=self.config.attack.optimize_iterations,
+                duration_seconds=duration,
+                success_rate=len(successful) / len(self.attack_history) * 100 if self.attack_history else 0.0,
+                best_prompt=successful[0] if successful else "",
+                general_prompt=general_prompt,
+                total_prompt_tokens=self._total_prompt_tokens,
+                total_completion_tokens=self._total_completion_tokens,
+                total_tokens=total_tokens,
+                estimated_cost=estimated_cost,
+            )
+        except Exception as e:
+            duration = (datetime.now() - start).total_seconds()
+            logger.error(f"Attack failed: {e}")
+            total_tokens = self._total_prompt_tokens + self._total_completion_tokens
+            estimated_cost = self._estimate_cost()
+            
+            return AttackSummary(
+                success=False,
+                successful_prompts=[],
+                total_attempts=len(self.attack_history),
+                total_iterations=self.config.attack.optimize_iterations,
+                duration_seconds=duration,
+                success_rate=0.0,
+                total_prompt_tokens=self._total_prompt_tokens,
+                total_completion_tokens=self._total_completion_tokens,
+                total_tokens=total_tokens,
+                estimated_cost=estimated_cost,
+                error=str(e),
+            )
+    
+    def _track_usage(self, response: dict) -> None:
+        """Track token usage from a response.
         
-        # Optimize prompts
-        successful = await self._optimize(overall, expanded)
+        Args:
+            response: Response dict with 'usage' field
+        """
+        if 'usage' in response:
+            usage = response['usage']
+            self._total_prompt_tokens += usage.get('prompt_tokens', 0)
+            self._total_completion_tokens += usage.get('completion_tokens', 0)
+    
+    def _estimate_cost(self) -> float:
+        """Estimate cost based on token usage.
         
-        logger.info("=" * 60)
-        logger.info(f"Complete! Elapsed: {datetime.now() - start}")
-        logger.info(f"Generated {len(successful)} prompts")
-        logger.info("=" * 60)
+        Uses OpenAI GPT-4 pricing as reference:
+        - Input: $0.03 / 1K tokens
+        - Output: $0.06 / 1K tokens
         
-        return AttackResult(
-            success=len(successful) > 0,
-            prompt=successful[0] if successful else "",
-            response_content="",
-            response_length=0,
-            iteration=self.config.attack.optimize_iterations,
-            total_cost=0.0,
-        )
+        Returns:
+            Estimated cost in USD
+        """
+        input_cost = (self._total_prompt_tokens / 1000) * 0.03
+        output_cost = (self._total_completion_tokens / 1000) * 0.06
+        return input_cost + output_cost
     
     def _save_intermediate(self, name: str, data: dict):
         """Save intermediate results."""
-        path = Path(self.config.output.save_dir) / f"{name}_{datetime.now():%Y%m%d_%H%M%S}.json"
+        path = self._run_dir / f"{name}.json"
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
         logger.debug(f"Saved to {path}")

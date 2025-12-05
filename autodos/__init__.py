@@ -7,12 +7,11 @@ and easy extensibility.
 __version__ = "0.1.0"
 
 from autodos.attack import AutoDoSAttack
-from autodos.config import AutoDoSConfig, Message, AgentConfig, AttackResult
+from autodos.config import AutoDoSConfig, AgentConfig, AttackResult
 
 __all__ = [
     "AutoDoSAttack",
     "AutoDoSConfig",
-    "Message",
     "AgentConfig",
     "AttackResult",
 ]
