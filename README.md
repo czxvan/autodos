@@ -1,8 +1,14 @@
-# AutoDoS - Automated Denial of Service Attack
+# 🚀 AutoDoS - Automated Denial of Service Attack
+
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+
+> ⚠️ **DISCLAIMER**: This project is for **academic research purposes only**. Do not use for malicious attacks. The authors are not responsible for any misuse or damage caused by this software.
 
 A clean async reimplementation of [AutoDoS](https://github.com/shuita2333/AutoDoS), built on AnyLLM with multi-agent collaboration.
 
-## Quick Start
+## 🚀 Quick Start
 
 ```bash
 # Run attack with default config
@@ -16,9 +22,9 @@ export DEEPSEEK_API_KEY="your-key"
 python main.py --config configs/deepseek_official.yaml
 ```
 
-**Note:** Free APIs (gpt4free) may be unstable. Official APIs recommended for production.
+> 💡 **Note:** Free APIs (gpt4free) may be unstable. Official APIs recommended for production.
 
-## Configuration
+## ⚙️ Configuration
 
 ```yaml
 attack:
@@ -38,51 +44,65 @@ agents:
 
 See `configs/` for more examples.
 
-## Architecture
+## 🏗️ Architecture
 
 ```
 AutoDoSAttack
-├── TargetAgent           # Target system interaction
-├── DeepBacktrackingAgent # Problem decomposition
-├── BreadthExpansionAgent # Subproblem expansion
-├── OptimizeAgent         # Prompt optimization
-└── JudgeAgent            # Response evaluation
+├── 🎯 TargetAgent           # Target system interaction
+├── 🔍 DeepBacktrackingAgent # Problem decomposition
+├── 📊 BreadthExpansionAgent # Subproblem expansion
+├── ⚡ OptimizeAgent         # Prompt optimization
+└── ⚖️ JudgeAgent            # Response evaluation
 ```
 
 All agents built on `anyllm.AsyncClient`, supporting OpenAI, gpt4free, vLLM, and more.
 
-## Key Features
+## ✨ Key Features
 
-- **Async-first**: Full asyncio with semaphore-based concurrency control
-- **Robust parsing**: json-repair for malformed JSON responses
-- **Smart retries**: 5 attempts with exponential backoff, 180s timeout
-- **Clean logging**: Separate INFO/DEBUG levels for clarity
-- **Auto-saving**: Results, history, and summaries saved automatically
-- **Minimal design**: Direct AnyLLM usage, no extra wrappers
-- **Type safety**: TypedDict + dataclass + Pydantic validation
+- 🚄 **Async-first**: Full asyncio with semaphore-based concurrency control
+- 🛡️ **Robust parsing**: json-repair for malformed JSON responses
+- 🔄 **Smart retries**: 5 attempts with exponential backoff, 180s timeout
+- 📝 **Clean logging**: Separate INFO/DEBUG levels for clarity
+- 💾 **Auto-saving**: Results, history, and summaries saved automatically
+- 🎯 **Minimal design**: Direct AnyLLM usage, no extra wrappers
+- 🔒 **Type safety**: TypedDict + dataclass + Pydantic validation
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 autodos/
-├── main.py               # CLI entry point
-├── autodos/
+├── 🚪 main.py            # CLI entry point
+├── 📦 autodos/
 │   ├── config.py         # Configuration & types
 │   ├── attack.py         # Attack orchestration
 │   └── agents/           # Agent implementations
-└── configs/              # YAML configs
+└── ⚙️ configs/           # YAML configs
 ```
 
-## Improvements over Original
+## 🎯 Improvements over Original
 
-- **Simplified codebase**: ~500 lines vs. 2000+ lines
-- **Pure async**: No sync wrappers, native asyncio throughout
-- **Better concurrency**: Semaphore-based dynamic control vs. static batching
-- **Cleaner types**: Minimal type system (TypedDict + dataclass + Pydantic)
-- **Robust parsing**: json-repair instead of manual regex fixes
-- **Production-ready**: CLI, logging, auto-saving, error handling
+- 📉 **Simplified codebase**: ~500 lines vs. 2000+ lines
+- ⚡ **Pure async**: No sync wrappers, native asyncio throughout
+- 🔀 **Better concurrency**: Semaphore-based dynamic control vs. static batching
+- 🏷️ **Cleaner types**: Minimal type system (TypedDict + dataclass + Pydantic)
+- 🛠️ **Robust parsing**: json-repair instead of manual regex fixes
+- 🚀 **Production-ready**: CLI, logging, auto-saving, error handling
 
 
-## License
+## 📜 License
 
 MIT License. See original [AutoDoS](https://github.com/shuita2333/AutoDoS) for reference.
+
+---
+
+## ⚠️ Responsible Use
+
+This tool is designed for **security research and academic purposes only**. Users must:
+
+- ✅ Only test systems you own or have explicit permission to test
+- ✅ Follow responsible disclosure practices
+- ✅ Comply with all applicable laws and regulations
+- ❌ Do NOT use for unauthorized access or malicious attacks
+- ❌ Do NOT use to cause harm or disruption to services
+
+**The authors and contributors are not liable for any misuse of this software.**
