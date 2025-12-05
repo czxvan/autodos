@@ -45,37 +45,13 @@ def setup_logging(config: AutoDoSConfig) -> logging.Logger:
     return logging.getLogger('autodos')
 
 
-def save_results(
-    config: AutoDoSConfig,
-    successful_prompts: list[str],
-    attack: AutoDoSAttack,
-) -> None:
-    """Save attack results to disk.
+def save_successful_prompts(successful_prompts: list[str], run_dir: Path) -> None:
+    """Save successful prompts to a separate file.
     
     Args:
-        config: AutoDoS configuration
         successful_prompts: List of successful attack prompts
-        attack: AutoDoS attack instance with history
+        run_dir: Directory to save results
     """
-    # Use the attack's run directory
-    run_dir = attack._run_dir
-    
-    print(f"\nSaving results to: {run_dir}")
-    
-    # Save general prompt (problem tree)
-    if hasattr(attack, '_last_general_prompt'):
-        general_file = run_dir / "general_prompt.txt"
-        with open(general_file, 'w', encoding='utf-8') as f:
-            f.write(f"# AutoDoS Generated Problem Tree\n")
-            f.write(f"# Generated: {datetime.now().isoformat()}\n")
-            f.write(f"# This is the complete problem tree used for optimization\n\n")
-            f.write(f"{'='*60}\n")
-            f.write(f"GENERAL PROMPT (Problem Tree)\n")
-            f.write(f"{'='*60}\n\n")
-            f.write(attack._last_general_prompt)
-        print(f"✓ Saved general prompt to: {general_file.name}")
-    
-    # Save successful prompts
     if successful_prompts:
         prompts_file = run_dir / "successful_prompts.txt"
         with open(prompts_file, 'w', encoding='utf-8') as f:
@@ -87,57 +63,23 @@ def save_results(
                 f.write(f"PROMPT {i}\n")
                 f.write(f"{'='*60}\n")
                 f.write(f"{prompt}\n\n")
-        print(f"✓ Saved {len(successful_prompts)} successful prompts to: {prompts_file.name}")
-    
-    # Save attack history
-    if config.output.save_intermediate and attack.attack_history:
-        history_file = run_dir / "attack_history.json"
-        history_data = [result.model_dump() for result in attack.attack_history]
-        with open(history_file, 'w', encoding='utf-8') as f:
-            json.dump(history_data, f, indent=2, ensure_ascii=False)
-        print(f"✓ Saved attack history to: {history_file.name}")
-    
-    # Save summary
-    summary_file = run_dir / "summary.txt"
-    with open(summary_file, 'w', encoding='utf-8') as f:
-        f.write(f"AutoDoS Attack Summary\n")
-        f.write(f"{'='*60}\n\n")
-        f.write(f"Timestamp: {datetime.now().isoformat()}\n")
-        f.write(f"Target: {config.target.function_description[:100]}...\n\n")
-        
-        f.write(f"Configuration:\n")
-        f.write(f"  Model: {config.agents.target['model']}\n")
-        f.write(f"  Backend: {config.agents.target['backend_type']}\n")
-        f.write(f"  Subproblems: {config.attack.n_subproblems}\n")
-        f.write(f"  Optimization Iterations: {config.attack.optimize_iterations}\n")
-        f.write(f"  Optimization Streams: {config.attack.n_optimization_streams}\n")
-        f.write(f"  Max Concurrent Requests: {config.attack.max_concurrent_requests}\n\n")
-        
-        f.write(f"Results:\n")
-        f.write(f"  Total Attempts: {len(attack.attack_history)}\n")
-        f.write(f"  Successful Prompts: {len(successful_prompts)}\n")
-        f.write(f"  Success Rate: {len(successful_prompts) / len(attack.attack_history) * 100:.1f}%\n" if attack.attack_history else "  Success Rate: 0.0%\n")
-        f.write(f"\nToken Usage:\n")
-        f.write(f"  Prompt Tokens: {attack._total_prompt_tokens:,}\n")
-        f.write(f"  Completion Tokens: {attack._total_completion_tokens:,}\n")
-        f.write(f"  Total Tokens: {attack._total_prompt_tokens + attack._total_completion_tokens:,}\n")
-        f.write(f"  Estimated Cost: ${attack._estimate_cost():.4f}\n")
-    
-    print(f"✓ Saved summary to: {summary_file.name}")
-    print(f"\n{'='*60}")
-    print(f"All results saved to: {run_dir}")
-    print(f"{'='*60}\n")
+        print(f"✓ Saved {len(successful_prompts)} successful prompts")
 
 
-async def run_attack(config_path: str) -> None:
+async def run_attack(config_path: str, general_prompt_path: str = None) -> None:
     """Run AutoDoS attack.
     
     Args:
         config_path: Path to configuration YAML file
+        general_prompt_path: Optional path to general prompt file
     """
     # Load configuration
     print(f"Loading configuration from: {config_path}")
     config = AutoDoSConfig.from_yaml(config_path)
+    
+    # Override with command-line argument if provided
+    if general_prompt_path:
+        config.target.general_prompt_file = general_prompt_path
     
     # Setup logging
     logger = setup_logging(config)
@@ -157,6 +99,9 @@ async def run_attack(config_path: str) -> None:
     print(f"  Max Concurrent Requests: {config.attack.max_concurrent_requests}")
     print(f"  Question Length: {config.attack.question_length}")
     print(f"\nTarget: {config.target.function_description[:100]}...")
+    if config.target.general_prompt_file:
+        print(f"\n⚡ Using existing general prompt: {config.target.general_prompt_file}")
+        print(f"   (Skipping tree generation, will run optimization)")
     print(f"{'='*60}\n")
     
     # Run attack
@@ -193,7 +138,11 @@ async def run_attack(config_path: str) -> None:
         
         # Save results
         print(f"\nSaving results...")
-        save_results(config, result.successful_prompts, attack)
+        attack.save_results()
+        save_successful_prompts(result.successful_prompts, attack._run_dir)
+        print(f"\n{'='*60}")
+        print(f"All results saved to: {attack._run_dir}")
+        print(f"{'='*60}\n")
         
         logger.info(f"Attack completed in {result.duration_seconds:.1f}s")
         
@@ -203,7 +152,7 @@ async def run_attack(config_path: str) -> None:
         print(f"Attack Interrupted")
         print(f"{'='*60}")
         print(f"Partial results will be saved...\n")
-        save_results(config, [], attack)
+        attack.save_results()
         sys.exit(1)
         
     except Exception as e:
@@ -224,11 +173,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run with default config
+  # Run full pipeline (tree generation + optimization)
   python main.py --config configs/deepseek_attack.yaml
   
-  # Run with custom config
-  python main.py --config my_config.yaml
+  # Use existing general prompt (skip tree generation, run optimization)
+  python main.py -c configs/deepseek_attack.yaml -g outputs/deepseek/run_XXX/general_prompt.txt
   
   # Get version info
   python main.py --version
@@ -240,6 +189,13 @@ Examples:
         type=str,
         default='configs/deepseek_attack.yaml',
         help='Path to configuration YAML file (default: configs/deepseek_attack.yaml)'
+    )
+    
+    parser.add_argument(
+        '--general-prompt', '-g',
+        type=str,
+        default=None,
+        help='Path to general prompt file (skips tree generation only)'
     )
     
     parser.add_argument(
@@ -257,9 +213,16 @@ Examples:
         print(f"Please provide a valid config file path.")
         sys.exit(1)
     
+    # Validate prompt file if provided
+    if args.general_prompt:
+        general_prompt_path = Path(args.general_prompt)
+        if not general_prompt_path.exists():
+            print(f"Error: General prompt file not found: {args.general_prompt}")
+            sys.exit(1)
+    
     # Run attack
     try:
-        asyncio.run(run_attack(args.config))
+        asyncio.run(run_attack(args.config, args.general_prompt))
     except KeyboardInterrupt:
         print("\nExiting...")
         sys.exit(0)

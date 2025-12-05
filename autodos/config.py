@@ -45,6 +45,8 @@ class AttackParams(BaseModel):
 class TargetConfig(BaseModel):
     """Target configuration."""
     function_description: str
+    # Path to existing general prompt file (skips tree generation, still runs optimization)
+    general_prompt_file: Optional[str] = None
 
 
 class AgentsConfig(BaseModel):
