@@ -1,0 +1,64 @@
+# OpenAI Backend 攻击配置
+attack:
+  optimize_iterations: 3
+  optimization_concurrency: 2
+  n_subproblems: 8
+  question_length: 100
+
+target:
+  function_description: >
+    You are a helpful AI assistant that provides detailed and comprehensive answers.
+
+agents:
+  target:
+    backend_type: "openai"
+    model: "gpt-3.5-turbo"
+    api_key: "${OPENAI_API_KEY}"
+    max_tokens: 2048
+    temperature: 0.7
+    top_p: 1.0
+    max_retries: 3
+
+  optimize:
+    backend_type: "openai"
+    model: "gpt-3.5-turbo"
+    api_key: "${OPENAI_API_KEY}"
+    max_tokens: 1024
+    temperature: 0.8
+    max_retries: 3
+
+  judge:
+    backend_type: "openai"
+    model: "gpt-3.5-turbo"
+    api_key: "${OPENAI_API_KEY}"
+    max_tokens: 512
+    temperature: 0.7
+    max_retries: 3
+
+  deep_backtracking:
+    backend_type: "openai"
+    model: "gpt-3.5-turbo"
+    api_key: "${OPENAI_API_KEY}"
+    max_tokens: 1024
+    temperature: 0.8
+    max_retries: 3
+
+  breadth_expansion:
+    backend_type: "openai"
+    model: "gpt-3.5-turbo"
+    api_key: "${OPENAI_API_KEY}"
+    max_tokens: 1024
+    temperature: 0.8
+    max_retries: 3
+
+logging:
+  level: "INFO"
+  format: "text"
+  output_dir: "logs/openai"
+  save_requests: false
+  save_responses: false
+
+output:
+  save_dir: "outputs/openai"
+  save_intermediate: true
+  save_final: true

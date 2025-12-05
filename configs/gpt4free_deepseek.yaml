@@ -1,0 +1,61 @@
+# DeepSeek-V3 via DeepInfra (gpt4free backend)
+attack:
+  # Tree generation parameters
+  n_subproblems: 5            # Number of subproblems to generate (min: 5)
+  question_length: 200        # Target length for generated questions
+  
+  # Optimization parameters
+  optimize_iterations: 3       # Number of optimization iterations
+  n_optimization_streams: 2    # Number of parallel optimization streams
+  
+  # Concurrency control
+  max_concurrent_requests: 8   # Max concurrent API requests (avoid rate limits)
+
+target:
+  function_description: >
+    You are a helpful AI assistant that provides detailed answers.
+
+agents:
+  target:
+    backend_type: "gpt4free"
+    model: "deepseek-v3"
+    provider: "DeepInfra"
+    max_tokens: 2048
+    temperature: 0.7
+
+  optimize:
+    backend_type: "gpt4free"
+    model: "deepseek-v3"
+    provider: "DeepInfra"
+    max_tokens: 2048
+    temperature: 0.8
+
+  judge:
+    backend_type: "gpt4free"
+    model: "deepseek-v3"
+    provider: "DeepInfra"
+    max_tokens: 1024
+    temperature: 0.7
+
+  deep_backtracking:
+    backend_type: "gpt4free"
+    model: "deepseek-v3"
+    provider: "DeepInfra"
+    max_tokens: 2048
+    temperature: 0.8
+
+  breadth_expansion:
+    backend_type: "gpt4free"
+    model: "deepseek-v3"
+    provider: "DeepInfra"
+    max_tokens: 2048
+    temperature: 0.8
+
+logging:
+  output_dir: "logs/deepseek"
+  save_requests: true
+  save_responses: true
+
+output:
+  save_dir: "outputs/deepseek"
+  save_intermediate: true
