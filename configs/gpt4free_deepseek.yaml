@@ -1,7 +1,7 @@
 # DeepSeek-V3 via DeepInfra (gpt4free backend)
 attack:
   # Tree generation parameters
-  n_subproblems: 5            # Number of subproblems to generate (min: 5)
+  n_subproblems: 20            # Number of subproblems to generate (min: 5)
   question_length: 200        # Target length for generated questions
   
   # Optimization parameters
@@ -9,7 +9,7 @@ attack:
   n_optimization_streams: 1    # Number of parallel optimization streams
   
   # Concurrency control
-  max_concurrent_requests: 8   # Max concurrent API requests (avoid rate limits)
+  max_concurrent_requests: 5   # Max concurrent API requests (avoid rate limits)
 
 target:
   function_description: >

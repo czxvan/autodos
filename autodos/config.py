@@ -31,15 +31,15 @@ class AgentConfig:
 class AttackParams(BaseModel):
     """Attack parameters."""
     # Tree generation parameters
-    n_subproblems: int = Field(default=25, ge=5, le=50)
-    question_length: int = Field(default=200, ge=50, le=1000)
+    n_subproblems: int = Field(default=10, ge=2)
+    question_length: int = Field(default=200, ge=50)
     
     # Optimization parameters
     optimize_iterations: int = Field(default=10, ge=1, le=50)
-    n_optimization_streams: int = Field(default=3, ge=1, le=10, description="Number of parallel optimization streams")
+    n_optimization_streams: int = Field(default=3, ge=1, description="Number of parallel optimization streams")
     
     # Concurrency control
-    max_concurrent_requests: int = Field(default=3, ge=1, le=10, description="Maximum concurrent API requests")
+    max_concurrent_requests: int = Field(default=3, ge=1, description="Maximum concurrent API requests")
 
 
 class TargetConfig(BaseModel):
